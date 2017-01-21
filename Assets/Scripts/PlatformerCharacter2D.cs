@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 
 namespace UnityStandardAssets._2D
@@ -7,9 +8,11 @@ namespace UnityStandardAssets._2D
     {
         [SerializeField] private float m_MaxSpeed = 10f;                    // The fastest the player can travel in the x axis.
         [SerializeField] private float m_JumpForce = 400f;                  // Amount of force added when the player jumps.
-        [Range(0, 1)] [SerializeField] private float m_CrouchSpeed = .36f;  // Amount of maxSpeed applied to crouching movement. 1 = 100%
         [SerializeField] private bool m_AirControl = false;                 // Whether or not a player can steer while jumping;
         [SerializeField] private LayerMask m_WhatIsGround;                  // A mask determining what is ground to the character
+        [SerializeField] private float m_MaxSlideTime = 1f;
+        [SerializeField] private float m_SlideSpeedMultiplier = 1.5f;
+
 
         private Transform m_GroundCheck;    // A position marking where to check if the player is grounded.
         const float k_GroundedRadius = .2f; // Radius of the overlap circle to determine if grounded
@@ -19,6 +22,8 @@ namespace UnityStandardAssets._2D
         private Animator m_Anim;            // Reference to the player's animator component.
         private Rigidbody2D m_Rigidbody2D;
         private bool m_FacingRight = true;  // For determining which way the player is currently facing.
+        private bool m_Sliding = false;
+        
 
         private void Awake()
         {
@@ -48,36 +53,53 @@ namespace UnityStandardAssets._2D
             m_Anim.SetFloat("vSpeed", m_Rigidbody2D.velocity.y);
         }
 
-
-        public void Move(float move, bool crouch, bool jump)
+        private IEnumerator StopSliding()
         {
-            // If crouching, check to see if the character can stand up
-            if (!crouch && m_Anim.GetBool("Crouch"))
-            {
-                // If the character has a ceiling preventing them from standing up, keep them crouching
-                if (Physics2D.OverlapCircle(m_CeilingCheck.position, k_CeilingRadius, m_WhatIsGround))
-                {
-                    crouch = true;
-                }
-            }
+            yield return new WaitForSeconds(m_MaxSlideTime);
+            HandleSliding(false);
+        }
 
-            // Set whether or not the character is crouching in the animator
-            m_Anim.SetBool("Crouch", crouch);
+        private void HandleSliding(bool start)
+        {
+            if(start)
+            {
+                m_Anim.SetBool("Slide", true);
+                m_Sliding = true;
+                StartCoroutine("StopSliding");
+            }
+            else
+            {
+                m_Anim.SetBool("Slide", false);
+                m_Sliding = false;
+                StopCoroutine("StopSliding");
+            }
+        }
+
+        public void Move(float move, bool slide, bool jump)
+        {
 
             //only control the player if grounded or airControl is turned on
             if (m_Grounded || m_AirControl)
             {
-                // Reduce the speed if crouching by the crouchSpeed multiplier
-                move = (crouch ? move*m_CrouchSpeed : move);
-
                 // The Speed animator parameter is set to the absolute value of the horizontal input.
-                m_Anim.SetBool("Running", Mathf.Abs(move) > 0);
-
+                m_Anim.SetBool("Running", true);
+                if (slide && !m_Sliding)
+                {
+                    HandleSliding(true);
+                }
+                else if(!slide && m_Sliding)
+                {
+                    HandleSliding(false);
+                }
+                if(m_Sliding)
+                {
+                    move *= m_SlideSpeedMultiplier;
+                }
                 // Move the character
-                m_Rigidbody2D.velocity = new Vector2(move*m_MaxSpeed, m_Rigidbody2D.velocity.y);
+                ScrollingManager.SetSpeed(-move*m_MaxSpeed);
 
                 // If the input is moving the player right and the player is facing left...
-                if (move > 0 && !m_FacingRight)
+                if (move >= 0 && !m_FacingRight)
                 {
                     // ... flip the player.
                     Flip();
